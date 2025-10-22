@@ -1,0 +1,130 @@
+services:
+
+  db-proxy:
+    image: ginuerzh/gost:latest
+    container_name: db-proxy-server
+    # Proxy com logging e retry automático
+    command: >
+      -L=tcp://:5432/${DB_HOST}:${DB_PORT}
+      -F=tcp://${DB_HOST}:${DB_PORT}
+      -v
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+    healthcheck:
+      test: ["CMD", "nc", "-z", "${DB_HOST}", "${DB_PORT}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ts-server:
+    image: tailscale/tailscale:latest
+    container_name: ts-server
+    hostname: vpn-db-server-${HOSTNAME_SUFFIX:-prod}
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_EXTRA_ARGS=--advertise-routes=${ADVERTISE_ROUTES} --accept-routes=true
+      - TS_HOSTNAME=vpn-db-server-${HOSTNAME_SUFFIX:-prod}
+    volumes:
+      - ./ts-server/state:/var/lib/tailscale
+      - ./logs:/var/log/tailscale:rw
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    network_mode: "service:db-proxy"
+    depends_on:
+      db-proxy:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m" 
+        max-file: "3"
+
+  # Monitor de conexão avançado
+  connection-monitor:
+    image: alpine:latest
+    container_name: vpn-monitor
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - CHECK_INTERVAL=${MONITOR_INTERVAL:-30}
+    command: >
+      sh -c "
+        apk add --no-cache curl netcat-openbsd postgresql-client
+        while true; do
+          echo '[$(date)] === VPN Server Health Check ==='
+          
+          # Verificar conectividade com banco externo
+          if nc -z $${DB_HOST} $${DB_PORT}; then
+            echo '[$(date)] ✅ External DB ($${DB_HOST}:$${DB_PORT}): OK'
+          else
+            echo '[$(date)] ❌ External DB ($${DB_HOST}:$${DB_PORT}): FAILED'
+          fi
+          
+          # Verificar proxy interno
+          if nc -z db-proxy 5432; then
+            echo '[$(date)] ✅ Internal Proxy (db-proxy:5432): OK'
+          else
+            echo '[$(date)] ❌ Internal Proxy (db-proxy:5432): FAILED'
+          fi
+          
+          # Status da VPN
+          if docker exec ts-server tailscale status > /dev/null 2>&1; then
+            echo '[$(date)] ✅ VPN Status: Connected'
+            echo '[$(date)] 📊 VPN IP:' $(docker exec ts-server tailscale ip 2>/dev/null || echo 'N/A')
+          else
+            echo '[$(date)] ❌ VPN Status: Disconnected'
+          fi
+          
+          echo '[$(date)] === End Health Check ==='
+          sleep $${CHECK_INTERVAL}
+        done
+      "
+    depends_on:
+      - ts-server
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Backup automático da configuração VPN (opcional)
+  config-backup:
+    image: alpine:latest
+    container_name: config-backup
+    volumes:
+      - ./ts-server/state:/backup-source:ro
+      - ./backups:/backup-dest:rw
+    command: >
+      sh -c "
+        mkdir -p /backup-dest
+        while true; do
+          echo '[$(date)] Creating VPN config backup...'
+          tar -czf /backup-dest/vpn-config-$(date +%Y%m%d-%H%M%S).tar.gz -C /backup-source .
+          
+          # Manter apenas os 5 backups mais recentes
+          ls -t /backup-dest/vpn-config-*.tar.gz | tail -n +6 | xargs -r rm
+          
+          echo '[$(date)] Backup completed'
+          sleep 3600  # Backup a cada hora
+        done
+      "
+    depends_on:
+      - ts-server
+    restart: unless-stopped
+    profiles:
+      - backup  # Use docker-compose --profile backup up para ativar

@@ -1,0 +1,38 @@
+services:
+
+  db-forwarder:
+    image: ginuerzh/gost:latest
+    container_name: db-forwarder-client
+    # Escuta LOCAL_PORT no container e encaminha para o servidor VPN
+    command: >
+      -L=tcp://:${LOCAL_PORT}/${VPN_SERVER_IP}:${VPN_SERVER_PORT}
+    restart: unless-stopped
+    environment:
+      - VPN_SERVER_IP=${VPN_SERVER_IP}
+      - VPN_SERVER_PORT=${VPN_SERVER_PORT}
+      - LOCAL_PORT=${LOCAL_PORT}
+    # Expõe só no loopback do host (seguro para aplicações locais)
+    ports:
+      - "${LOCAL_INTERFACE:-127.0.0.1}:${LOCAL_PORT:-15432}:${LOCAL_PORT:-15432}"
+
+  ts-client:
+    image: tailscale/tailscale:latest
+    container_name: ts-client
+    hostname: vpn-db-client-${HOSTNAME_SUFFIX:-client}
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false  # usa /dev/net/tun
+      - TS_ACCEPT_ROUTES=true
+      - TS_HOSTNAME=vpn-db-client-${HOSTNAME_SUFFIX:-client}
+    volumes:
+      - ./ts-authkey/state:/var/lib/tailscale
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    # Compartilha a pilha de rede com o db-forwarder (sidecar pattern)
+    network_mode: "service:db-forwarder"
+    depends_on:
+      - db-forwarder
+    restart: unless-stopped

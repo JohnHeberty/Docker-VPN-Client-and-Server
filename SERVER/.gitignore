@@ -1,0 +1,42 @@
+# Arquivos de configuração sensíveis
+.env
+*.env
+
+# Estado do Tailscale (contém chaves privadas)
+ts-server/state/
+ts-*/state/
+
+# Logs do Docker
+*.log
+
+# Backups
+*.bak
+*.backup
+
+# Arquivos temporários
+*.tmp
+*.temp
+
+# Certificados e chaves
+*.key
+*.pem
+*.crt
+*.p12
+
+# Dados de volumes Docker
+volumes/
+data/
+
+# OS específicos
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.docker/

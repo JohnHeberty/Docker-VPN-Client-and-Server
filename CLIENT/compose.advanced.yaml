@@ -1,0 +1,175 @@
+services:
+
+  db-forwarder:
+    image: ginuerzh/gost:latest
+    container_name: db-forwarder-client
+    # Escuta LOCAL_PORT e encaminha para o servidor VPN com logging
+    command: >
+      -L=tcp://:${LOCAL_PORT}/${VPN_SERVER_IP}:${VPN_SERVER_PORT}
+      -F=tcp://${VPN_SERVER_IP}:${VPN_SERVER_PORT}
+      -v
+    restart: unless-stopped
+    environment:
+      - VPN_SERVER_IP=${VPN_SERVER_IP}
+      - VPN_SERVER_PORT=${VPN_SERVER_PORT}
+      - LOCAL_PORT=${LOCAL_PORT}
+    ports:
+      - "${LOCAL_INTERFACE:-127.0.0.1}:${LOCAL_PORT:-15432}:${LOCAL_PORT:-15432}"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "${VPN_SERVER_IP}", "${VPN_SERVER_PORT}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ts-client:
+    image: tailscale/tailscale:latest
+    container_name: ts-client
+    hostname: vpn-db-client-${HOSTNAME_SUFFIX:-client}
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_ACCEPT_ROUTES=true
+      - TS_HOSTNAME=vpn-db-client-${HOSTNAME_SUFFIX:-client}
+      - TS_EXTRA_ARGS=--accept-routes=true --accept-dns=true
+    volumes:
+      - ./ts-authkey/state:/var/lib/tailscale
+      - ./logs:/var/log/tailscale:rw
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    network_mode: "service:db-forwarder"
+    depends_on:
+      db-forwarder:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Monitor de conexão local
+  connection-monitor:
+    image: alpine:latest
+    container_name: client-monitor
+    environment:
+      - VPN_SERVER_IP=${VPN_SERVER_IP}
+      - VPN_SERVER_PORT=${VPN_SERVER_PORT}
+      - LOCAL_PORT=${LOCAL_PORT}
+      - CHECK_INTERVAL=${CONNECTION_TIMEOUT:-30}
+    command: >
+      sh -c "
+        apk add --no-cache curl netcat-openbsd postgresql-client
+        echo '🚀 Client Monitor Started'
+        sleep 15
+        
+        while true; do
+          echo '[$(date)] === VPN Client Health Check ==='
+          
+          # Verificar conectividade com servidor VPN
+          if nc -z $${VPN_SERVER_IP} $${VPN_SERVER_PORT}; then
+            echo '[$(date)] ✅ VPN Server ($${VPN_SERVER_IP}:$${VPN_SERVER_PORT}): OK'
+          else
+            echo '[$(date)] ❌ VPN Server ($${VPN_SERVER_IP}:$${VPN_SERVER_PORT}): FAILED'
+          fi
+          
+          # Verificar proxy local
+          if nc -z db-forwarder $${LOCAL_PORT}; then
+            echo '[$(date)] ✅ Local Forwarder (localhost:$${LOCAL_PORT}): OK'
+          else
+            echo '[$(date)] ❌ Local Forwarder (localhost:$${LOCAL_PORT}): FAILED'
+          fi
+          
+          # Status da VPN
+          if docker exec ts-client tailscale status > /dev/null 2>&1; then
+            echo '[$(date)] ✅ VPN Status: Connected'
+            echo '[$(date)] 📊 VPN IP:' $(docker exec ts-client tailscale ip 2>/dev/null || echo 'N/A')
+            
+            # Ping do servidor
+            if docker exec ts-client tailscale ping -c 1 $${VPN_SERVER_IP} > /dev/null 2>&1; then
+              echo '[$(date)] ✅ VPN Ping to Server: OK'
+            else
+              echo '[$(date)] ⚠️  VPN Ping to Server: No response'
+            fi
+          else
+            echo '[$(date)] ❌ VPN Status: Disconnected'
+          fi
+          
+          echo '[$(date)] === End Health Check ==='
+          sleep $${CHECK_INTERVAL}
+        done
+      "
+    depends_on:
+      - ts-client
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Testador de conexão com banco (opcional)
+  db-connection-tester:
+    image: postgres:alpine
+    container_name: db-tester
+    environment:
+      - PGHOST=db-forwarder
+      - PGPORT=${LOCAL_PORT}
+      - TEST_INTERVAL=60
+    command: >
+      sh -c "
+        echo '🔍 Database Connection Tester'
+        sleep 20
+        
+        while true; do
+          echo '[$(date)] Testing database connection...'
+          
+          if nc -z db-forwarder $${PGPORT}; then
+            echo '[$(date)] ✅ Database port is open'
+          else
+            echo '[$(date)] ❌ Database port is closed'
+          fi
+          
+          sleep $${TEST_INTERVAL}
+        done
+      "
+    depends_on:
+      - db-forwarder
+    restart: unless-stopped
+    profiles:
+      - testing  # Use docker-compose --profile testing up para ativar
+
+  # Backup automático da configuração VPN (opcional)
+  config-backup:
+    image: alpine:latest
+    container_name: client-config-backup
+    volumes:
+      - ./ts-authkey/state:/backup-source:ro
+      - ./backups:/backup-dest:rw
+    command: >
+      sh -c "
+        mkdir -p /backup-dest
+        while true; do
+          echo '[$(date)] Creating VPN config backup...'
+          tar -czf /backup-dest/vpn-client-config-$(date +%Y%m%d-%H%M%S).tar.gz -C /backup-source .
+          
+          # Manter apenas os 5 backups mais recentes
+          ls -t /backup-dest/vpn-client-config-*.tar.gz | tail -n +6 | xargs -r rm
+          
+          echo '[$(date)] Backup completed'
+          sleep 3600  # Backup a cada hora
+        done
+      "
+    depends_on:
+      - ts-client
+    restart: unless-stopped
+    profiles:
+      - backup  # Use docker-compose --profile backup up para ativar

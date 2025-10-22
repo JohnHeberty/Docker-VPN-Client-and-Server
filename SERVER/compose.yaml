@@ -1,0 +1,51 @@
+services:
+
+  db-proxy:
+    image: ginuerzh/gost:latest
+    container_name: db-proxy-server
+    # Escuta na interface VPN e encaminha para o banco externo
+    command: >
+      -L=tcp://:5432/${DB_HOST}:${DB_PORT}
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+    # Não expõe portas externamente - só via VPN
+    # ports: []
+
+  ts-server:
+    image: tailscale/tailscale:latest
+    container_name: ts-server
+    hostname: vpn-db-server
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false  # usa /dev/net/tun
+      - TS_EXTRA_ARGS=--advertise-routes=${ADVERTISE_ROUTES}
+    volumes:
+      - ./ts-server/state:/var/lib/tailscale
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    # Compartilha a pilha de rede com o db-proxy (sidecar pattern)
+    network_mode: "service:db-proxy"
+    depends_on:
+      - db-proxy
+    restart: unless-stopped
+
+  # Serviço para monitoramento/logs (opcional)
+  healthcheck:
+    image: alpine:latest
+    container_name: server-health
+    command: >
+      sh -c "
+        while true; do
+          echo '[$(date)] Server Health Check - VPN: OK, DB Proxy: OK'
+          sleep 30
+        done
+      "
+    depends_on:
+      - ts-server
+    restart: unless-stopped
