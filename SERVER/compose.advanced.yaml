@@ -27,7 +27,6 @@ services:
   ts-server:
     image: tailscale/tailscale:latest
     container_name: ts-server
-    hostname: vpn-db-server-${HOSTNAME_SUFFIX:-prod}
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_STATE_DIR=/var/lib/tailscale

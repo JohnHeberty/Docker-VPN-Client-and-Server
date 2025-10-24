@@ -16,11 +16,12 @@ services:
   ts-server:
     image: tailscale/tailscale:latest
     container_name: ts-server
-    hostname: vpn-db-server
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false  # usa /dev/net/tun
+      # Use TS_HOSTNAME para nomear o nó no Tailscale (não use "hostname" com network_mode)
+      - TS_HOSTNAME=${TS_HOSTNAME:-vpn-db-server}
       - TS_EXTRA_ARGS=--advertise-routes=${ADVERTISE_ROUTES}
     volumes:
       - ./ts-server/state:/var/lib/tailscale
