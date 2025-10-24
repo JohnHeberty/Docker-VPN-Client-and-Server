@@ -12,6 +12,8 @@ services:
       - DB_PORT=${DB_PORT}
     # Não expõe portas externamente - só via VPN
     # ports: []
+    networks:
+      - vpnservernet
 
   ts-server:
     image: tailscale/tailscale:latest
@@ -28,23 +30,12 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    # Compartilha a pilha de rede com o db-proxy (sidecar pattern)
-    network_mode: "service:db-proxy"
+    # Conecta à rede dedicada do projeto
+    networks:
+      - vpnservernet
+
+networks:
+  vpnservernet:
+    driver: bridge
     depends_on:
       - db-proxy
-    restart: unless-stopped
-
-  # Serviço para monitoramento/logs (opcional)
-  healthcheck:
-    image: alpine:latest
-    container_name: server-health
-    command: >
-      sh -c "
-        while true; do
-          echo '[$(date)] Server Health Check - VPN: OK, DB Proxy: OK'
-          sleep 30
-        done
-      "
-    depends_on:
-      - ts-server
-    restart: unless-stopped
