@@ -33,15 +33,13 @@ services:
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false
+      - TS_USERSPACE=${TS_USERSPACE:-true}
       - TS_ACCEPT_ROUTES=true
       - TS_HOSTNAME=vpn-db-client-${HOSTNAME_SUFFIX:-client}
       - TS_EXTRA_ARGS=--accept-routes=true --accept-dns=true
     volumes:
       - ./ts-authkey/state:/var/lib/tailscale
       - ./logs:/var/log/tailscale:rw
-    devices:
-      - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
     network_mode: "service:db-forwarder"

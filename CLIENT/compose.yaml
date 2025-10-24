@@ -21,13 +21,11 @@ services:
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false  # usa /dev/net/tun
+      - TS_USERSPACE=${TS_USERSPACE:-true}  # userspace evita /dev/net/tun
       - TS_ACCEPT_ROUTES=true
       - TS_HOSTNAME=vpn-db-client-${HOSTNAME_SUFFIX:-client}
     volumes:
       - ./ts-authkey/state:/var/lib/tailscale
-    devices:
-      - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
     # Compartilha a pilha de rede com o db-forwarder (sidecar pattern)

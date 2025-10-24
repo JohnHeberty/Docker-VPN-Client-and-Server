@@ -19,14 +19,12 @@ services:
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false  # usa /dev/net/tun
+      - TS_USERSPACE=${TS_USERSPACE:-true}  # userspace mode evita /dev/net/tun em LXC/Proxmox
       # Use TS_HOSTNAME para nomear o nó no Tailscale (não use "hostname" com network_mode)
       - TS_HOSTNAME=${TS_HOSTNAME:-vpn-db-server}
       - TS_EXTRA_ARGS=--advertise-routes=${ADVERTISE_ROUTES}
     volumes:
       - ./ts-server/state:/var/lib/tailscale
-    devices:
-      - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
       - SYS_MODULE

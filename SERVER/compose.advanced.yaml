@@ -30,14 +30,12 @@ services:
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false
+      - TS_USERSPACE=${TS_USERSPACE:-true}
       - TS_EXTRA_ARGS=--advertise-routes=${ADVERTISE_ROUTES} --accept-routes=true
       - TS_HOSTNAME=vpn-db-server-${HOSTNAME_SUFFIX:-prod}
     volumes:
       - ./ts-server/state:/var/lib/tailscale
       - ./logs:/var/log/tailscale:rw
-    devices:
-      - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
