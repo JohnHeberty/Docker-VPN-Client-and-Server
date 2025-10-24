@@ -5,7 +5,7 @@ services:
     container_name: db-proxy-server
     # Escuta na interface VPN e encaminha para o banco externo
     command: >
-      -L=tcp://:5432/${DB_HOST}:${DB_PORT}
+      -L=tcp://:${DB_PORT}/${DB_HOST}:${DB_PORT}
     restart: unless-stopped
     environment:
       - DB_HOST=${DB_HOST}
