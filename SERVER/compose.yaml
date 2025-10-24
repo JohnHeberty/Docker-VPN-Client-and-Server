@@ -12,8 +12,6 @@ services:
       - DB_PORT=${DB_PORT}
     # Não expõe portas externamente - só via VPN
     # ports: []
-    networks:
-      - vpnservernet
 
   ts-server:
     image: tailscale/tailscale:latest
@@ -30,13 +28,10 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    # Conecta à rede dedicada do projeto
-    networks:
-      - vpnservernet
+    # Compartilha a pilha de rede com o db-proxy (sidecar pattern)
+    network_mode: "service:db-proxy"
     depends_on:
       - db-proxy
     restart: unless-stopped
 
-networks:
-  vpnservernet:
-    driver: bridge
+
