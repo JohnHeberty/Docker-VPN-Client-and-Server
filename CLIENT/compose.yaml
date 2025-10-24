@@ -14,6 +14,8 @@ services:
     # Expõe só no loopback do host (seguro para aplicações locais)
     ports:
       - "${LOCAL_INTERFACE:-127.0.0.1}:${LOCAL_PORT:-15432}:${LOCAL_PORT:-15432}"
+    networks:
+      - vpnclientnet
 
   ts-client:
     image: tailscale/tailscale:latest
@@ -28,8 +30,13 @@ services:
       - ./ts-authkey/state:/var/lib/tailscale
     cap_add:
       - NET_ADMIN
-    # Compartilha a pilha de rede com o db-forwarder (sidecar pattern)
-    network_mode: "service:db-forwarder"
+    # Conecta à rede dedicada do projeto
+    networks:
+      - vpnclientnet
     depends_on:
       - db-forwarder
     restart: unless-stopped
+      
+networks:
+  vpnclientnet:
+    driver: bridge

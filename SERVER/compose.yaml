@@ -33,9 +33,10 @@ services:
     # Conecta à rede dedicada do projeto
     networks:
       - vpnservernet
+    depends_on:
+      - db-proxy
+    restart: unless-stopped
 
 networks:
   vpnservernet:
     driver: bridge
-    depends_on:
-      - db-proxy
